@@ -1,7 +1,7 @@
 from dotenv import load_dotenv
 from langchain.chat_models import init_chat_model
 from langchain.tools import tool
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage, ToolMessage, HumanMessage
 from langsmith import traceable
 
 load_dotenv()
@@ -27,7 +27,7 @@ def apply_discount(price: float, discount_tier: str) -> float:
     discount = discount_percentages.get(discount_tier, 0)
     return round(price * (1 - discount/100), 2)
 
-@traceable(name="Langchain Agent Loop")
+@traceable(name="langchain Agent Loop")
 def run_agent(query: str):
     tools = [get_product_price, apply_discount]
     tools_dict = {f.__name__: f for f in tools}
@@ -52,8 +52,44 @@ def run_agent(query: str):
                 "4. If the user does not specify a discount tier, "
                 "ask them which tier to use — do NOT assume one."
             )
-        )
+        ),
+        HumanMessage(content=query),
     ]
+
+    for i in range(1, MAX_ITERATIONS+1):
+        print(f"\n --- Iteration: {i} ---")
+
+        ai_message = llm_with_tools.invoke(messages)
+        tool_calls = ai_message.tool_calls
+
+        if len(tool_calls) == 0:
+            print(f"\n Final answer: {ai_message.content}")
+            return ai_message.content
+
+        # Processing only the FIRST tool call - forcing one tool per iteration
+        tool_call = tool_calls[0]
+        tool_name = tool_call.get("name")
+        tool_args = tool_call.get("args")
+        tool_id = tool_call.get("id")
+
+        print(f"Tool Selected: {tool_name} with args: {tool_args}")
+
+        tool_to_use = tools_dict.get(tool_name)
+        if tool_to_use is None:
+            raise ValueError(f"Tool {tool_name} not found")
+
+        observation = tool_to_use.invoke(tool_args)
+
+        print(f"Tool Result Observation: {observation}")
+
+        messages.append(ai_message)
+        messages.append(
+            ToolMessage(content=str(observation), tool_call_id=tool_id)
+        )
+
+    print("Error: Max iterations reached without an answer")
+    return None
+
 
 if __name__ == "__main__":
     print("Hello LangChain Agent (.bind_tools)!")
