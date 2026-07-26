@@ -80,82 +80,78 @@ Final Answer: the final answer to the original input question
 Begin!
 
 Question: {query}
-Thought:{agent_scratchpad}
+Thought:""
 """
 
 @traceable(name="Ollama Chat", run_type="llm")
-def ollama_chat_traced(messages):
-    return ollama.chat(model=MODEL, tools=tools_for_llm, messages=messages)
+def ollama_chat_traced(model, messages, options):
+    return ollama.chat(model=MODEL, messages=messages, options=options)
 
+# ---- Agent Loop -----
 @traceable(name="Ollama Agent Loop")
 def run_agent(query: str):
-    tools_dict = {
-        "get_product_price": get_product_price,
-        "apply_discount": apply_discount,
-    }
+    print(f"Question: {query}")
+    print("=" * 60)
 
-    print(f"query: {query}")
+    prompt = react_prompt.format(question=question)
+    scratchpad = ""
 
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a helpful shopping assistant. "
-                "You have access to a product catalog tool "
-                "and a discount tool.\n\n"
-                "STRICT RULES — you must follow these exactly:\n"
-                "1. NEVER guess or assume any product price. "
-                "You MUST call get_product_price first to get the real price.\n"
-                "2. Only call apply_discount AFTER you have received "
-                "a price from get_product_price. Pass the exact price "
-                "returned by get_product_price — do NOT pass a made-up number.\n"
-                "3. NEVER calculate discounts yourself using math. "
-                "Always use the apply_discount tool.\n"
-                "4. If the user does not specify a discount tier, "
-                "ask them which tier to use — do NOT assume one."
-            ),
-        },
-        {"role": "user", "content": query},
-    ]
+    for iteration in range(1, MAX_ITERATIONS + 1):
+        print(f"\n--- Iteration {iteration} ---")
+        full_prompt = prompt + scratchpad
 
-    for i in range(1, MAX_ITERATIONS+1):
-        print(f"\n --- Iteration: {i} ---")
-
-        response = ollama_chat_traced(messages=messages)
-        ai_message = response.message
-
-        tool_calls = ai_message.tool_calls
-
-        if not tool_calls:
-            print(f"\n Final answer: {ai_message.content}")
-            return ai_message.content
-
-        # Process only the FIRST tool call — force one tool per iteration
-        tool_call = tool_calls[0]
-        # Difference 6: Attribute access (.function.name) instead of dict access (.get("name"))
-        tool_name = tool_call.function.name
-        tool_args = tool_call.function.arguments
-
-        print(f"Tool Selected: {tool_name} with args: {tool_args}")
-
-        tool_to_use = tools_dict.get(tool_name)
-        if tool_to_use is None:
-            raise ValueError(f"Tool {tool_name} not found")
-
-        # Difference 7: Direct function call instead of tool.invoke()
-        observation = tool_to_use(**tool_args)
-
-        print(f"Tool Result Observation: {observation}")
-
-        messages.append(ai_message)
-        messages.append(
-            {
-                "role": "tool",
-                "content": str(observation),
-            }
+        # Stop token prevents the LLM from generating its own Observation —
+        # we inject the real tool result instead.
+        response = ollama_chat_traced(
+            model=MODEL,
+            messages=[{"role": "user", "content": full_prompt}],
+            options={"stop": ["\nObservation"], "temperature": 0},
         )
+        output = response.message.content
+        print(f"LLM Output:\n{output}")
 
-    print("Error: Max iterations reached without an answer")
+        print(f"  [Parsing] Looking for Final Answer in LLM output...")
+        final_answer_match = re.search(r"Final Answer:\s*(.+)", output)
+        if final_answer_match:
+            final_answer = final_answer_match.group(1).strip()
+            print(f"  [Parsed] Final Answer: {final_answer}")
+            print("\n" + "=" * 60)
+            print(f"Final Answer: {final_answer}")
+            return final_answer
+
+        # CHANGE 6: Parse tool calls from raw text with regex — fragile if LLM doesn't follow format.
+        print(f"  [Parsing] Looking for Action and Action Input in LLM output...")
+
+        action_match = re.search(r"Action:\s*(.+)", output)
+        action_input_match = re.search(r"Action Input:\s*(.+)", output)
+
+        if not action_match or not action_input_match:
+            print(
+                "  [Parsing] ERROR: Could not parse Action/Action Input from LLM output"
+            )
+            break
+
+        tool_name = action_match.group(1).strip()
+        tool_input_raw = action_input_match.group(1).strip()
+
+        print(f"  [Tool Selected] {tool_name} with args: {tool_input_raw}")
+
+        # Split comma-separated args; strip key= prefix if LLM outputs key=value format
+        raw_args = [x.strip() for x in tool_input_raw.split(",")]
+        args = [x.split("=", 1)[-1].strip().strip("'\"") for x in raw_args]
+
+        print(f"  [Tool Executing] {tool_name}({args})...")
+        if tool_name not in tools:
+            observation = f"Error: Tool '{tool_name}' not found. Available tools: {list(tools.keys())}"
+        else:
+            observation = str(tools[tool_name](*args))
+
+        print(f"  [Tool Result] {observation}")
+
+        # CHANGE 7: History is one growing string re-sent every iteration (replaces messages.append).
+        scratchpad += f"{output}\nObservation: {observation}\nThought:"
+
+    print("ERROR: Max iterations reached without a final answer")
     return None
 
 
