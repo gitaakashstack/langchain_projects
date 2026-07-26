@@ -28,6 +28,7 @@ def apply_discount(price: float, discount_tier: str) -> float:
     print(f"Executing apply_discount for price: '{price}', discount tier: '{discount_tier}'")
     discount_percentages = {"bronze": 5, "silver": 12, "gold": 23}
     discount = discount_percentages.get(discount_tier, 0)
+    price = float(price)
     return round(price * (1 - discount/100), 2)
 
 tools = {
@@ -79,7 +80,7 @@ Final Answer: the final answer to the original input question
 
 Begin!
 
-Question: {query}
+Question: {{query}}
 Thought:""
 """
 
@@ -93,7 +94,7 @@ def run_agent(query: str):
     print(f"Question: {query}")
     print("=" * 60)
 
-    prompt = react_prompt.format(question=question)
+    prompt = react_prompt.format(query=query)
     scratchpad = ""
 
     for iteration in range(1, MAX_ITERATIONS + 1):
@@ -156,7 +157,7 @@ def run_agent(query: str):
 
 
 if __name__ == "__main__":
-    print("Hello LangChain Agent (.bind_tools)!")
+    print("Hello LangChain Agent")
     print()
     result = run_agent("What is the price of a laptop after applying a gold discount?")
 
