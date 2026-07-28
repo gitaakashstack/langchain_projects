@@ -1,4 +1,6 @@
 from dotenv import load_dotenv
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_unstructured import UnstructuredLoader
 from langchain_text_splitters import CharacterTextSplitter
@@ -39,6 +41,9 @@ def format_docs(docs):
     """Format retrieved documents into a single string."""
     return "\n\n".join(doc.page_content for doc in docs)
 
+# ============================================================================
+# IMPLEMENTATION 1: Without LCEL (Simple Function-Based Approach)
+# ============================================================================
 def retrieval_chain_without_lcel(query:str):
     """
     Simple retrieval chain without LCEL.
@@ -66,6 +71,37 @@ def retrieval_chain_without_lcel(query:str):
     # Step 5: Return the content
     return response.content
 
+# ============================================================================
+# IMPLEMENTATION 2: With LCEL (LangChain Expression Language) - BETTER APPROACH
+# ============================================================================
+def create_retrieval_chain_with_lcel(query:str):
+    """
+    Create a retrieval chain using LCEL (LangChain Expression Language).
+    Returns a chain that can be invoked with {"question": "..."}
+
+    Advantages over non-LCEL approach:
+    - Declarative and composable: Easy to chain operations with pipe operator (|)
+    - Built-in streaming: chain.stream() works out of the box
+    - Built-in async: chain.ainvoke() and chain.astream() available
+    - Batch processing: chain.batch() for multiple inputs
+    - Type safety: Better integration with LangChain's type system
+    - Less code: More concise and readable
+    - Reusable: Chain can be saved, shared, and composed with other chains
+    - Better debugging: LangChain provides better observability tools
+    """
+
+    rag_chain = (
+        {
+            "question": RunnablePassthrough(),
+            "context": retriever | format_docs
+        }
+        | prompt_template
+        | llm
+        | StrOutputParser()
+     )
+
+    return rag_chain.invoke(query)
+
 
 if __name__ == "__main__":
     print("Retrieving")
@@ -91,3 +127,21 @@ if __name__ == "__main__":
     result_without_lcel = retrieval_chain_without_lcel(query)
     print("\nAnswer:")
     print(result_without_lcel[0].get("text"))
+
+    # ========================================================================
+    # Option 2: Use implementation WITH LCEL (Better Approach)
+    # ========================================================================
+    print("\n" + "=" * 70)
+    print("IMPLEMENTATION 2: With LCEL - Better Approach")
+    print("=" * 70)
+    print("Why LCEL is better:")
+    print("- More concise and declarative")
+    print("- Built-in streaming: chain.stream()")
+    print("- Built-in async: chain.ainvoke()")
+    print("- Easy to compose with other chains")
+    print("- Better for production use")
+    print("=" * 70)
+
+    result_with_lcel = create_retrieval_chain_with_lcel(query)
+    print("\nAnswer:")
+    print(result_with_lcel)
