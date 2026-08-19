@@ -26,6 +26,7 @@ embeddings = GoogleGenerativeAIEmbeddings(
     api_key=SecretStr(os.environ["GOOGLE_API_KEY"]),
     output_dimensionality=768
 )
+vectorstore = PineconeVectorStore(embedding=embeddings, index_name=os.environ["PINECONE_INDEX"])
 
 tavily_extract = TavilyExtract()
 tavily_map = TavilyMap(max_depth=5, max_breadth=20, max_pages=1000)
