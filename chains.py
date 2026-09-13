@@ -16,6 +16,12 @@ reflection_prompt = ChatPromptTemplate.from_messages(
     ]
 )
 
+# The last message with user role "Please critique the assistant's answer above" is needed specfically by Gemini.
+# Gemini's generateContent endpoint requires the contents list to end on a user (or function/tool) turn, never on a model turn. If the last message you send in is itself
+# an AIMessage (model turn), Gemini rejects the whole request with exactly this error — it won't "continue" a model turn, it can only respond to a user/tool turn.
+# What happens: an earlier node produced an AIMessage (e.g. the actor's answer), that got appended to state["messages"], and then the reflect node calls the LLM
+# again on the same messages list without adding anything new — so the list going into llm.invoke() ends with ..., AIMessage(...). Gemini refuses that outright.
+
 generation_prompt = ChatPromptTemplate.from_messages(
     [
         (
