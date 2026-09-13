@@ -1,43 +1,64 @@
 from dotenv import load_dotenv
-
+from typing import TypedDict, Annotated
 from langchain.messages import HumanMessage
 from langgraph.graph import MessagesState, StateGraph, END
-
-from nodes import tool_node, run_agent_reasoning
+from langgraph.graph.message import add_messages
 
 load_dotenv()
 
-AGENT_REASON="agent_reason"
-ACT="act"
-LAST=-1
+from chains import generation_chain, reflection_chain
 
-def should_continue(state:MessagesState) -> str:
-    if not state["messages"][LAST].tool_calls:
+
+
+class MessageGraph(TypedDict):
+    messages: Annotated[list[HumanMessage], add_messages]
+
+REFLECT = "reflect"
+GENERATE = "generate"
+
+def generation_node(state: MessageGraph):
+    return {"messages": [generation_chain.invoke({"messages": state["messages"]})]}
+
+def reflect_node(state: MessageGraph):
+    res = reflection_chain.invoke({"messages": state["messages"]})
+    return {"messages": [HumanMessage(content=res.content)]}
+
+def should_continue(state: MessageGraph):
+    if len(state["messages"]) > 6 :
         return END
-    return ACT
+    return REFLECT
 
-flow = StateGraph(MessagesState)
-
-flow.add_node(AGENT_REASON, run_agent_reasoning)
-flow.set_entry_point(AGENT_REASON)
-flow.add_node(ACT, tool_node)
-
-flow.add_conditional_edges(AGENT_REASON, should_continue, path_map={
+builder = StateGraph(state_schema=MessageGraph)
+builder.add_node(GENERATE, generation_node)
+builder.add_node(REFLECT, reflect_node)
+builder.set_entry_point(GENERATE)
+builder.add_conditional_edges(GENERATE, should_continue, path_map={
     END: END,
-    ACT: ACT,
+    REFLECT: REFLECT,
 })
-flow.add_edge(ACT, AGENT_REASON)
+builder.add_edge(REFLECT, GENERATE)
 
-app = flow.compile()
-app.get_graph().draw_mermaid_png(output_file_path="flow.png")
-
+graph = builder.compile()
+graph.get_graph().draw_mermaid_png(output_file_path='flow.png')
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    print('Hello React LangGraph with Function Calling')
-    res = app.invoke({
-        "messages": [HumanMessage(content="What is the weather in Tokyo ? List it and then triple it")]
+    print('Hello React LangGraph with Reflection')
+    res = graph.invoke({
+        "messages": [
+            HumanMessage(
+                content="""Make this tweet better:"
+                                        @LangChainAI
+                — newly Tool Calling feature is seriously underrated.
+
+                After a long wait, it's  here- making the implementation of agents across different models with function calling - super easy.
+
+                Made a video covering their newest blog post
+
+                                      """
+            )
+        ]
     })
-    print(res["messages"][LAST].content)
+    print(res)
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
