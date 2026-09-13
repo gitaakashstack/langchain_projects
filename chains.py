@@ -1,39 +1,62 @@
+import datetime
+
+from dotenv import load_dotenv
+
+load_dotenv()
+from langchain_core.messages import HumanMessage
+from langchain_core.output_parsers import JsonOutputToolsParser, PydanticToolsParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-reflection_prompt = ChatPromptTemplate.from_messages(
+from schemas import AnswerQuestion
+
+actor_prompt_template = ChatPromptTemplate.from_messages(
     [
         (
             "system",
-            "You are a viral twitter influencer grading a tweet. Generate critique and recommendations for the user's tweet."
-            "Always provide detailed recommendations, including requests for length, virality, style, etc.",
+            """You are an expert researcher. 
+            Current time: {time}
+            1.{first_instruction}
+            2.Reflect and critique your answer
+            3.Recommend search queries to research information and improve your answer.
+            """
         ),
         MessagesPlaceholder(variable_name="messages"),
-        (
-            "user",
-            "Please critique the assistant's answer above."
-        ),
-    ]
-)
-
-# The last message with user role "Please critique the assistant's answer above" is needed specfically by Gemini.
-# Gemini's generateContent endpoint requires the contents list to end on a user (or function/tool) turn, never on a model turn. If the last message you send in is itself
-# an AIMessage (model turn), Gemini rejects the whole request with exactly this error — it won't "continue" a model turn, it can only respond to a user/tool turn.
-# What happens: an earlier node produced an AIMessage (e.g. the actor's answer), that got appended to state["messages"], and then the reflect node calls the LLM
-# again on the same messages list without adding anything new — so the list going into llm.invoke() ends with ..., AIMessage(...). Gemini refuses that outright.
-
-generation_prompt = ChatPromptTemplate.from_messages(
-    [
         (
             "system",
-            "You are a twitter techie influencer assistant tasked with writing excellent twitter posts."
-            " Generate the best twitter post possible for the user's request."
-            " If the user provides critique, respond with a revised version of your previous attempts.",
-        ),
-        MessagesPlaceholder(variable_name="messages"),
+            "Answer the user's question above using the required format."
+        )
+
     ]
+).partial(
+    time=lambda: datetime.datetime.now().isoformat(),
 )
+
+first_responder_prompt_template = actor_prompt_template.partial(
+    first_instruction="Provide a detailed ~205 word answer"
+)
+
 
 llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", temperature=0)
-generation_chain = generation_prompt | llm
-reflection_chain = reflection_prompt | llm
+parser = JsonOutputToolsParser(return_id=True)
+parser_pydantic = PydanticToolsParser(tools=[AnswerQuestion])
+
+first_responder = first_responder_prompt_template | llm.bind_tools(
+    tools=[AnswerQuestion], tool_choice="AnswerQuestion"
+)
+
+if __name__ == "__main__":
+    human_message = HumanMessage(
+        content="Write about AI-Powered SOC / autonomous soc  problem domain,"
+                " list startups that do that and raised capital."
+    )
+    chain = (
+            first_responder_prompt_template
+            | llm.bind_tools(tools=[AnswerQuestion], tool_choice="AnswerQuestion")
+            | parser_pydantic
+    )
+
+    res = chain.invoke(input={"messages": [human_message]})
+    print(res)
+
+
