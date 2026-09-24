@@ -33,9 +33,10 @@ chunks = text_splitter.split_documents(flattened_docs)
 
 print(f"Created {len(chunks)} chunks after splitting")
 
+#  the default length of the embedding vector is 1536 for text-embedding-3-small
 embeddings = OpenAIEmbeddings(
     model='text-embedding-3-small',
-    api_key=os.getenv("OPENAI_API_KEY"),
+    dimensions=512,
 )
 
 print("Ingesting...")
@@ -47,3 +48,5 @@ PineconeVectorStore.from_documents(
 )
 
 print("Ingestion Finished")
+
+retriever = PineconeVectorStore().as_retriever()
