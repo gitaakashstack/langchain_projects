@@ -48,5 +48,3 @@ PineconeVectorStore.from_documents(
 )
 
 print("Ingestion Finished")
-
-retriever = PineconeVectorStore().as_retriever()

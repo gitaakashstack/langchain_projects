@@ -16,6 +16,7 @@ dependencies = [
     "langchain-unstructured>=1.0.1",
     "langchainhub>=0.1.21",
     "langgraph>=1.2.11",
+    "pydantic>=2.13.5",
     "pytest>=9.1.1",
     "python-dotenv>=1.2.3",
     "unstructured[all-docs]>=0.27.8",
